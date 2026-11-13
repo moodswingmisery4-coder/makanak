@@ -1,7 +1,7 @@
 {
-  "source": "https://www.jabama.com/",
+  "source": "",
   "citiesSource": "https://raw.githubusercontent.com/sajaddp/list-of-cities-in-Iran/main/dist/json/cities.json",
   "importedCount": 84,
   "cityNames": 1628,
-  "scope": "Public homepage snapshot only; not the full Jabama inventory. Prices are a captured snapshot in toman; not live availability."
+  "scope": "Public homepage snapshot only; not the full منبع عمومی inventory. Prices are a captured snapshot in toman; not live availability."
 }
