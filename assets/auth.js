@@ -1,5 +1,7 @@
 (() => {
-  const API = 'https://makanak.kdns.fr/api';
+  const API_BASES = ['https://makanak-worker.makanak-app.workers.dev/api', 'https://makanak.kdns.fr/api'];
+  let apiBase = API_BASES[0];
+  const API = () => apiBase;
   const modal = document.querySelector('#modal');
   const loginButton = document.querySelector('#loginBtn');
   if (!modal) return;
@@ -8,14 +10,32 @@
   const show = () => { modal.classList.remove('hidden'); modal.classList.add('flex'); };
   const hide = () => { modal.classList.add('hidden'); modal.classList.remove('flex'); };
   const toast = t => { const x=document.querySelector('#toast'); if(x){x.textContent=t;x.classList.remove('hidden');setTimeout(()=>x.classList.add('hidden'),2600)} };
-  async function api(path, options={}) { let r; try { r=await fetch(API+path,{credentials:'include',headers:{'content-type':'application/json',...(options.headers||{})},...options}); } catch(e) { throw Error('اتصال به سرور برقرار نشد. اینترنت یا فیلترشکن خود را بررسی کنید و دوباره تلاش کنید.'); } const d=await r.json().catch(()=>({})); if(!r.ok) throw Error(d.error||'خطا در ارتباط با سرویس'); return d; }
+  const TOKEN_KEY='makanak_token';
+  const getToken=()=>{try{return localStorage.getItem(TOKEN_KEY)||''}catch{return ''}};
+  const setToken=t=>{try{t?localStorage.setItem(TOKEN_KEY,t):localStorage.removeItem(TOKEN_KEY)}catch{}};
+  async function api(path, options={}) {
+    const order = [apiBase, ...API_BASES.filter(b => b !== apiBase)];
+    let lastError = null;
+    for (const base of order) {
+      let r;
+      const auth = getToken();
+      const headers = {'content-type':'application/json', ...(auth?{authorization:'Bearer '+auth}:{}), ...(options.headers||{})};
+      try { r = await fetch(base+path,{credentials:'include',headers,...options}); }
+      catch(e) { lastError = Error('اتصال به سرور برقرار نشد. اینترنت یا فیلترشکن خود را بررسی کنید و دوباره تلاش کنید.'); continue; }
+      apiBase = base;
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok) throw Error(d.error||'خطا در ارتباط با سرویس');
+      return d;
+    }
+    throw lastError || Error('اتصال به سرور برقرار نشد.');
+  }
   function renderAuth(mode='login', error='') {
     modal.querySelector('.bg-white').innerHTML = `<button id="closeModal" class="absolute left-5 top-5 text-slate-400 text-2xl" type="button">×</button><div class="text-3xl mb-3">✦</div><h2 class="text-2xl font-black mb-2">${mode==='login'?'ورود به حساب':'ثبت‌نام در مکانک'}</h2><p class="text-slate-500 text-sm leading-7 mb-5">${mode==='login'?'برای رزرو، وارد حساب کاربری شوید.':'حساب خود را بسازید و رزروهایتان را مدیریت کنید.'}</p><form id="authForm" class="space-y-3">${mode==='register'?'<input name="name" required minlength="2" class="w-full bg-slate-50 border rounded-xl p-4" placeholder="نام و نام خانوادگی">':''}<input name="email" required type="email" class="w-full bg-slate-50 border rounded-xl p-4" placeholder="ایمیل"><input name="password" required minlength="8" type="password" class="w-full bg-slate-50 border rounded-xl p-4" placeholder="رمز عبور (حداقل ۸ کاراکتر)">${mode==='register'?'<input name="phone" class="w-full bg-slate-50 border rounded-xl p-4" placeholder="شماره موبایل (اختیاری) ">':''}<p id="authError" class="text-red-600 text-sm">${esc(error)}</p><button class="w-full bg-coral text-white rounded-xl p-4 font-bold" type="submit">${mode==='login'?'ورود':'ساخت حساب'}</button></form><button id="authSwitch" class="text-coral text-sm font-bold mt-4" type="button">${mode==='login'?'حساب ندارید؟ ثبت‌نام کنید':'قبلاً حساب ساخته‌اید؟ وارد شوید'}</button>`;
     modal.querySelector('#closeModal').onclick=hide; modal.querySelector('#authSwitch').onclick=()=>renderAuth(mode==='login'?'register':'login');
-    modal.querySelector('#authForm').onsubmit=async e=>{e.preventDefault();const b=Object.fromEntries(new FormData(e.target));const btn=e.target.querySelector('button');btn.disabled=true;try{const d=await api(mode==='login'?'/auth/login':'/auth/register',{method:'POST',body:JSON.stringify(b)});currentUser=d.user;hide();updateHeader();toast('ورود با موفقیت انجام شد');}catch(err){renderAuth(mode,err.message)}finally{btn.disabled=false}};
+    modal.querySelector('#authForm').onsubmit=async e=>{e.preventDefault();const b=Object.fromEntries(new FormData(e.target));const btn=e.target.querySelector('button');btn.disabled=true;try{const d=await api(mode==='login'?'/auth/login':'/auth/register',{method:'POST',body:JSON.stringify(b)});currentUser=d.user;setToken(d.token||'');hide();updateHeader();toast('ورود با موفقیت انجام شد');}catch(err){renderAuth(mode,err.message)}finally{btn.disabled=false}};
   }
   function updateHeader(){ if(loginButton){loginButton.textContent=currentUser?`حساب کاربری: ${currentUser.name||currentUser.email}`:'ورود / ثبت‌نام';loginButton.onclick=()=>currentUser?renderAccount():renderAuth('login');} }
-  async function renderAccount(){ try{const d=await api('/bookings');modal.querySelector('.bg-white').innerHTML=`<button id="closeModal" class="absolute left-5 top-5 text-slate-400 text-2xl" type="button">×</button><h2 class="text-2xl font-black mb-2">پنل کاربری</h2><p class="text-slate-500 mb-5">${esc(currentUser?.name||currentUser?.email||'کاربر')}</p><h3 class="font-bold mb-3">رزروهای من</h3><div class="space-y-3 max-h-64 overflow-auto">${(d.bookings||[]).map(b=>`<div class="border rounded-xl p-3"><b>${esc(b.stay_name||'اقامتگاه')}</b><p class="text-sm text-slate-500">${esc(b.check_in)} تا ${esc(b.check_out)} · ${b.guests} نفر</p><p class="text-xs mt-1">وضعیت: ${b.status==='cancelled'?'لغوشده':'در انتظار بررسی'}</p></div>`).join('')||'<p class="text-sm text-slate-500">هنوز رزروی ثبت نکرده‌اید.</p>'}</div><button id="logoutBtn" class="w-full mt-5 border border-red-200 text-red-600 rounded-xl p-3 font-bold" type="button">خروج از حساب</button>`;show();modal.querySelector('#closeModal').onclick=hide;modal.querySelector('#logoutBtn').onclick=async()=>{await api('/auth/logout',{method:'POST'});currentUser=null;hide();updateHeader();toast('از حساب خارج شدید')}}catch(e){renderAuth('login',e.message)}}
+  async function renderAccount(){ try{const d=await api('/bookings');modal.querySelector('.bg-white').innerHTML=`<button id="closeModal" class="absolute left-5 top-5 text-slate-400 text-2xl" type="button">×</button><h2 class="text-2xl font-black mb-2">پنل کاربری</h2><p class="text-slate-500 mb-5">${esc(currentUser?.name||currentUser?.email||'کاربر')}</p><h3 class="font-bold mb-3">رزروهای من</h3><div class="space-y-3 max-h-64 overflow-auto">${(d.bookings||[]).map(b=>`<div class="border rounded-xl p-3"><b>${esc(b.stay_name||'اقامتگاه')}</b><p class="text-sm text-slate-500">${esc(b.check_in)} تا ${esc(b.check_out)} · ${b.guests} نفر</p><p class="text-xs mt-1">وضعیت: ${b.status==='cancelled'?'لغوشده':'در انتظار بررسی'}</p></div>`).join('')||'<p class="text-sm text-slate-500">هنوز رزروی ثبت نکرده‌اید.</p>'}</div><button id="logoutBtn" class="w-full mt-5 border border-red-200 text-red-600 rounded-xl p-3 font-bold" type="button">خروج از حساب</button>`;show();modal.querySelector('#closeModal').onclick=hide;modal.querySelector('#logoutBtn').onclick=async()=>{try{await api('/auth/logout',{method:'POST'})}catch{};setToken('');currentUser=null;hide();updateHeader();toast('از حساب خارج شدید')}}catch(e){renderAuth('login',e.message)}}
   async function check(){try{const d=await api('/auth/me');currentUser=d.user;updateHeader()}catch{}}
   window.makanakAuth={api,requireLogin:async cb=>{if(!currentUser){renderAuth('login');show();toast('برای رزرو ابتدا وارد شوید');return false}return cb?cb(currentUser):true},user:()=>currentUser};
   loginButton.onclick=()=>{if(currentUser)renderAccount();else{renderAuth('login');show()}}; modal.onclick=e=>{if(e.target===modal)hide()}; check();
